@@ -1,13 +1,4 @@
-PICOLLM:
 
-PicoLLM is a from-scratch LLM inference engine built in PyTorch for autoregressive GPT-2 text generation. It implements KV caching, PagedAttention-style memory management, continuous batching, request scheduling, and configurable sampling, with correctness validated against independent generation. The engine is exposed through a FastAPI REST API and can be containerized for deployment.
-
-Transformer Model - Multi-head self-attention with RoPE position encoding
-KV-Cache - Efficient token caching for faster inference
-PagedAttention - Block-based memory management (like OS virtual memory)
-Continuous Batching - Dynamic scheduling for high throughput
-FastAPI Server - Production-ready REST API for inference
-Project Structure
 # PicoLLM — LLM Inference Engine from Scratch
 
 PicoLLM is a **from-scratch LLM inference engine built in PyTorch** for autoregressive GPT-style text generation. It implements core inference-system components including **KV caching, PagedAttention-style memory management, continuous batching, request scheduling, and configurable sampling**.
