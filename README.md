@@ -8,23 +8,94 @@ PagedAttention - Block-based memory management (like OS virtual memory)
 Continuous Batching - Dynamic scheduling for high throughput
 FastAPI Server - Production-ready REST API for inference
 Project Structure
-d:\llm\
-├── venv/                          # Virtual environment
-│   ├── attention.py               # Phase 1: MultiHeadAttention, PagedAttention
-│   ├── kv_cache.py                # Phase 2: KVCache, MultiSeqKVCache
-│   └── transformer.py             # Phase 1: GPTModel, RotaryEmbedding, FFN
-│   ├── block_manager.py           # Phase 3: BlockManager, paged memory
-│   ├── scheduler.py               # Phase 4: ContinuousBatchingScheduler
-│   └── inference.py               # Phase 5: SimpleLLMEngine orchestration
-│   └── api.py                     # Phase 5: FastAPI server
-│   ├── 01_ATTENTION.md            # Detailed attention docs
-│   ├── 02_KVCACHE.md              # KV-Cache documentation
-│   ├── 03_TRANSFORMER.md          # Transformer model docs
-│   ├── 04_BLOCKMANAGER.md         # BlockManager documentation
-│   ├── 05_SCHEDULER.md            # Scheduler documentation
-│   ├── 06_INFERENCE.md            # Inference engine docs
-│   ├── 07_API.md                  # FastAPI server docs
-│   └── 08_TESTS.md                # Test suite documentation
-├── main.py                        # Complete test suite
-├── requirements.txt               # Python dependencies
-└── README.md                      # This file
+# PicoLLM — LLM Inference Engine from Scratch
+
+PicoLLM is a **from-scratch LLM inference engine built in PyTorch** for autoregressive GPT-style text generation. It implements core inference-system components including **KV caching, PagedAttention-style memory management, continuous batching, request scheduling, and configurable sampling**.
+
+The engine is exposed through a **FastAPI REST API** and is designed to be containerized for deployment.
+
+The project focuses on understanding and implementing the systems behind modern LLM inference engines rather than relying on existing inference frameworks.
+
+---
+
+## Key Features
+
+- **Transformer Model**
+  - Multi-head self-attention
+  - Rotary Position Embeddings (RoPE)
+  - Feed-forward network (FFN)
+  - Autoregressive text generation
+
+- **KV Cache**
+  - Caches previously computed key/value states
+  - Avoids redundant computation during autoregressive decoding
+  - Supports multiple concurrent sequences
+
+- **PagedAttention-style Memory Management**
+  - Block-based KV-cache allocation
+  - Dynamic memory management
+  - Inspired by OS-style virtual memory concepts
+
+- **Continuous Batching**
+  - Dynamically adds and removes requests during inference
+  - Improves GPU utilization and throughput
+  - Supports concurrent sequence generation
+
+- **Request Scheduling**
+  - Manages active inference requests
+  - Controls request execution and completion
+  - Coordinates with the KV-cache and block manager
+
+- **Configurable Sampling**
+  - Temperature-based sampling
+  - Top-k sampling
+  - Configurable generation parameters
+
+- **FastAPI Inference Server**
+  - REST API for text generation
+  - Easy integration with external applications
+  - Suitable for containerized deployment
+
+- **Correctness Validation**
+  - Independent generation tests
+  - Component-level testing
+  - End-to-end inference validation
+
+---
+
+## Architecture
+
+```text
+                    ┌──────────────────────┐
+                    │      FastAPI API     │
+                    └──────────┬───────────┘
+                               │
+                               ▼
+                    ┌──────────────────────┐
+                    │   Inference Engine   │
+                    │    Orchestration     │
+                    └──────────┬───────────┘
+                               │
+                ┌──────────────┴──────────────┐
+                │                             │
+                ▼                             ▼
+      ┌──────────────────┐          ┌──────────────────┐
+      │     Scheduler    │          │   KV Cache       │
+      │ Continuous       │          │ Multi-Sequence   │
+      │ Batching         │          │ Cache            │
+      └────────┬─────────┘          └────────┬─────────┘
+               │                             │
+               ▼                             ▼
+      ┌──────────────────┐          ┌──────────────────┐
+      │  Block Manager   │◄────────►│ PagedAttention   │
+      │ Block Allocation │          │ Memory Access    │
+      └────────┬─────────┘          └────────┬─────────┘
+               │                             │
+               └──────────────┬──────────────┘
+                              ▼
+                    ┌──────────────────────┐
+                    │    Transformer      │
+                    │  Multi-Head Attn.   │
+                    │       + RoPE        │
+                    │        + FFN         │
+                    └──────────────────────┘
