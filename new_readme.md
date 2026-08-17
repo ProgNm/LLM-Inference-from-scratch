@@ -1,34 +1,12 @@
-﻿# vLLM From Scratch — Complete Project Documentation
 
-> **A full, production-inspired vLLM inference engine built completely from scratch in pure PyTorch.**
-> Covers every layer of the stack: from raw matrix multiplications in the Transformer all the way to a Docker-containerised REST API.
-
----
-
-## Table of Contents
-
-1. [The Story — Why We Built This](#1-the-story--why-we-built-this)
-2. [High-Level Architecture](#2-high-level-architecture)
-3. [Project Structure](#3-project-structure)
-4. [Phase-by-Phase Implementation Story](#4-phase-by-phase-implementation-story)
-5. [The Test Suite — main.py Walkthrough](#5-the-test-suite--mainpy-walkthrough)
-6. [Program Output — python main.py](#6-program-output--python-mainpy)
-7. [Key Concepts Explained](#7-key-concepts-explained)
-8. [Dependencies](#8-dependencies)
-9. [How to Run](#9-how-to-run)
-10. [Docker Usage](#10-docker-usage)
-11. [REST API Reference](#11-rest-api-reference)
-12. [Correctness Proofs Built Into the Tests](#12-correctness-proofs-built-into-the-tests)
-
----
 
 ## 1. The Story -- Why We Built This
 
-The real **vLLM** (from UC Berkeley, 2023) is a production LLM serving engine known for near-perfect GPU memory utilisation and up to 24x higher throughput than naive inference servers. Its two core ideas -- **PagedAttention** and **Continuous Batching** -- were originally described in:
+The real **LLM** (from UC Berkeley, 2023) is a production LLM serving engine known for near-perfect GPU memory utilisation and up to 24x higher throughput than naive inference servers. Its two core ideas -- **PagedAttention** and **Continuous Batching** -- were originally described in:
 
 > Efficient Memory Management for Large Language Model Serving with PagedAttention (Kwon et al., SOSP 2023)
 
-This project is a **ground-up re-implementation** of those ideas. The goal is not just to copy vLLM API, but to deeply understand:
+This project is a **ground-up re-implementation** of those ideas. The goal is not just to copy LLM API, but to deeply understand:
 
 - **How a GPT-style Transformer works internally** -- token embeddings, positional embeddings, multi-head attention (QKV), feed-forward network, layer norms, residual connections, the LM head.
 - **Why the KV Cache exists** -- and exactly what goes wrong (position errors, wrong logits) if you implement it incorrectly.
@@ -83,7 +61,7 @@ Pre-trained weights: HuggingFace GPT-2 loaded by model/load_weights.py
 ## 3. Project Structure
 
 `
-vLLM-from-scratch/
+LLM-from-scratch/
 |
 +-- main.py                   # Entry point: runs the full 9-test suite
 |
