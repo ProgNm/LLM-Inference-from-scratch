@@ -10,17 +10,13 @@ FastAPI Server - Production-ready REST API for inference
 Project Structure
 d:\llm\
 ├── venv/                          # Virtual environment
-├── model/
 │   ├── attention.py               # Phase 1: MultiHeadAttention, PagedAttention
 │   ├── kv_cache.py                # Phase 2: KVCache, MultiSeqKVCache
 │   └── transformer.py             # Phase 1: GPTModel, RotaryEmbedding, FFN
-├── engine/
 │   ├── block_manager.py           # Phase 3: BlockManager, paged memory
 │   ├── scheduler.py               # Phase 4: ContinuousBatchingScheduler
 │   └── inference.py               # Phase 5: SimpleLLMEngine orchestration
-├── serving/
 │   └── api.py                     # Phase 5: FastAPI server
-├── docs/
 │   ├── 01_ATTENTION.md            # Detailed attention docs
 │   ├── 02_KVCACHE.md              # KV-Cache documentation
 │   ├── 03_TRANSFORMER.md          # Transformer model docs
