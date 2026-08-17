@@ -1,0 +1,254 @@
+(test_env) PS C:\Users\Anas Khan\Desktop\DKER\vLLM-from-scratch> python main.py                       
+INFO:__main__:Starting vLLM Engine Tests
+
+INFO:__main__:============================================================
+INFO:__main__:TEST 1: Transformer Forward Pass
+INFO:__main__:============================================================
+INFO:__main__:Model created with 6,895,232 parameters
+INFO:__main__:Input shape: torch.Size([2, 10])
+INFO:__main__:Output logits shape: torch.Size([2, 10, 50257])
+INFO:__main__:✓ Forward pass successful!
+INFO:__main__:
+============================================================
+INFO:__main__:TEST 2: KV-Cache Implementation
+INFO:__main__:============================================================
+INFO:__main__:Step 0: Cached sequence length = 1
+INFO:__main__:Step 1: Cached sequence length = 2
+INFO:__main__:Step 2: Cached sequence length = 3
+INFO:__main__:✓ KV-Cache working correctly!
+INFO:__main__:
+============================================================
+INFO:__main__:TEST 3: BlockManager for PagedAttention
+INFO:__main__:============================================================
+INFO:__main__:BlockManager created with 64 blocks, 16 tokens per block
+INFO:__main__:Sequence 0 allocated: True
+INFO:__main__:Sequence 1 allocated: True
+INFO:__main__:Sequence 2 allocated: True
+INFO:__main__:Sequence 3 allocated: True
+INFO:__main__:Sequence 4 allocated: True
+INFO:__main__:Memory usage: 0/1024 tokens
+INFO:__main__:Utilization: 0.0%
+INFO:__main__:Freed sequence 2
+INFO:__main__:Free blocks: 56
+INFO:__main__:✓ BlockManager working correctly!
+INFO:__main__:
+============================================================
+INFO:__main__:TEST 4: Continuous Batching Scheduler
+INFO:__main__:============================================================
+INFO:__main__:Added request 0
+INFO:__main__:Added request 1
+INFO:__main__:Added request 2
+INFO:__main__:Added request 3
+INFO:__main__:Added request 4
+INFO:__main__:Added request 5
+INFO:__main__:Step 0: 4 sequences running
+INFO:__main__:Step 1: 4 sequences running
+INFO:__main__:Step 2: 5 sequences running
+INFO:__main__:Scheduler stats: {'waiting': 2, 'running': 4, 'finished': 0, 'total_sequences_processed': 6}
+INFO:__main__:✓ Scheduler working correctly!
+INFO:__main__:
+============================================================
+INFO:__main__:TEST 7: KV Cache Correctness Verification
+INFO:__main__:============================================================
+INFO:__main__:Test sequence: 8 tokens (random token IDs, fixed seed=42)
+INFO:__main__:
+Pos    Max Logit Diff       Greedy (Full)      Greedy (KV)        Match
+INFO:__main__:───────────────────────────────────────────────────────────────────────────
+INFO:__main__:0      1.907e-05            8692               8692               ✓
+INFO:__main__:1      2.289e-05            45454              45454              ✓
+INFO:__main__:2      2.289e-05            33528              33528              ✓
+INFO:__main__:3      3.052e-05            39959              39959              ✓
+INFO:__main__:4      1.907e-05            31035              31035              ✓
+INFO:__main__:5      3.052e-05            19021              19021              ✓
+INFO:__main__:6      1.907e-05            7446               7446               ✓
+INFO:__main__:7      1.907e-05            21300              21300              ✓
+INFO:__main__:
+Worst-case logit difference across all 8 positions: 3.052e-05
+INFO:__main__:✓ KV cache verified: every position matches the causal forward pass exactly!
+INFO:__main__:
+============================================================
+INFO:__main__:TEST 8: Continuous Batching Correctness Verification
+INFO:__main__:============================================================
+INFO:httpx:HTTP Request: HEAD https://huggingface.co/gpt2/resolve/main/config.json "HTTP/1.1 200 OK"
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+WARNING:huggingface_hub.utils._http:Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+INFO:httpx:HTTP Request: HEAD https://huggingface.co/gpt2/resolve/main/tokenizer_config.json "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: GET https://huggingface.co/api/models/gpt2/tree/main/additional_chat_templates?recursive=false&expand=false "HTTP/1.1 307 Temporary Redirect"
+INFO:httpx:HTTP Request: GET https://huggingface.co/api/models/openai-community/gpt2/tree/main/additional_chat_templates?recursive=false&expand=false "HTTP/1.1 404 Not Found"
+INFO:httpx:HTTP Request: GET https://huggingface.co/api/models/gpt2/tree/main?recursive=true&expand=false "HTTP/1.1 307 Temporary Redirect"
+INFO:httpx:HTTP Request: GET https://huggingface.co/api/models/openai-community/gpt2/tree/main?recursive=true&expand=false "HTTP/1.1 200 OK"
+INFO:__main__:Method A: Independent per-prompt generation (model.generate)...
+INFO:__main__:  Standalone  'Hello, my name is' → ' is is is is is is is is is is'
+INFO:__main__:  Standalone  'The capital of France' → ' France France France France France France France France France France'
+INFO:__main__:  Standalone  'Once upon a time,' → ',,,,,,,,,,'
+INFO:__main__:
+Method B: Simultaneous generation via vLLM engine (continuous batching)...
+INFO:engine.inference:Initializing LLM Engine on cpu
+INFO:engine.inference:Model parameters: 6,895,232
+INFO:engine.inference:Block manager: 128 blocks * 16 tokens
+INFO:engine.inference:Added request 0: prompt_length=5, max_new_tokens=10
+INFO:engine.inference:Added request 1: prompt_length=4, max_new_tokens=10
+INFO:engine.inference:Added request 2: prompt_length=5, max_new_tokens=10
+INFO:engine.inference:Generation step: running 4 sequences
+INFO:engine.inference:Generation step: running 4 sequences
+INFO:engine.inference:Generation step: running 3 sequences
+INFO:engine.inference:Generation step: running 3 sequences
+INFO:engine.inference:Generation step: running 3 sequences
+INFO:engine.inference:Generation step: running 3 sequences
+INFO:engine.inference:Generation step: running 3 sequences
+INFO:engine.inference:Generation step: running 3 sequences
+INFO:engine.inference:Generation step: running 3 sequences
+INFO:engine.inference:Generation step: running 1 sequences
+INFO:engine.inference:Step 10: {'waiting': 0, 'running': 0, 'finished': 3, 'total_sequences_processed': 3}
+INFO:engine.inference:Generation complete in 10 steps
+INFO:__main__:  Engine      'Hello, my name is' → ' is is is is is is is is is is'
+INFO:__main__:  Engine      'The capital of France' → ' France France France France France France France France France France'
+INFO:__main__:  Engine      'Once upon a time,' → ',,,,,,,,,,'
+INFO:__main__:
+Token-level comparison (standalone vs engine):
+INFO:__main__:Prompt                         Standalone tokens                   Engine tokens                       Match
+INFO:__main__:──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+INFO:__main__:'Hello, my name is'            [318, 318, 318, 318, 318, 318, 318, 318, 318, 318] [318, 318, 318, 318, 318, 318, 318, 318, 318, 318] ✓
+INFO:__main__:'The capital of France'        [4881, 4881, 4881, 4881, 4881, 4881, 4881, 4881, 4881, 4881] [4881, 4881, 4881, 4881, 4881, 4881, 4881, 4881, 4881, 4881] ✓
+INFO:__main__:'Once upon a time,'            [11, 11, 11, 11, 11, 11, 11, 11, 11, 11] [11, 11, 11, 11, 11, 11, 11, 11, 11, 11] ✓
+INFO:__main__:✓ Continuous batching verified: all sequences match independent generation exactly!     
+INFO:__main__:
+============================================================
+INFO:__main__:TEST 5: Full vLLM Inference Engine (with real GPT-2 weights)
+INFO:__main__:============================================================
+INFO:engine.inference:Initializing LLM Engine on cpu
+INFO:engine.inference:Model parameters: 124,439,808
+INFO:engine.inference:Block manager: 128 blocks * 16 tokens
+INFO:__main__:Engine initialized
+INFO:__main__:Loading GPT-2 pretrained weights into full vLLM engine...
+INFO:model.load_weights:Loading pretrained weights from HuggingFace: 'gpt2'...
+INFO:httpx:HTTP Request: HEAD https://huggingface.co/gpt2/resolve/main/config.json "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: HEAD https://huggingface.co/gpt2/resolve/main/model.safetensors "HTTP/1.1 302 Found"
+Loading weights: 100%|███████████████████████████████████████████| 148/148 [00:00<00:00, 3787.25it/s]
+INFO:httpx:HTTP Request: HEAD https://huggingface.co/gpt2/resolve/main/generation_config.json "HTTP/1.1 200 OK"
+INFO:model.load_weights:HuggingFace state dict loaded (149 tensors)
+INFO:model.load_weights:✓ GPT-2 pretrained weights loaded successfully (gpt2)
+INFO:httpx:HTTP Request: HEAD https://huggingface.co/gpt2/resolve/main/config.json "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: HEAD https://huggingface.co/gpt2/resolve/main/tokenizer_config.json "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: GET https://huggingface.co/api/models/gpt2/tree/main/additional_chat_templates?recursive=false&expand=false "HTTP/1.1 307 Temporary Redirect"
+INFO:httpx:HTTP Request: GET https://huggingface.co/api/models/openai-community/gpt2/tree/main/additional_chat_templates?recursive=false&expand=false "HTTP/1.1 404 Not Found"
+INFO:httpx:HTTP Request: GET https://huggingface.co/api/models/gpt2/tree/main?recursive=true&expand=false "HTTP/1.1 307 Temporary Redirect"
+INFO:httpx:HTTP Request: GET https://huggingface.co/api/models/openai-community/gpt2/tree/main?recursive=true&expand=false "HTTP/1.1 200 OK"
+INFO:engine.inference:Added request 0: prompt_length=5, max_new_tokens=15
+INFO:__main__:Added request 0: 'Hello, my name is'
+INFO:engine.inference:Added request 1: prompt_length=5, max_new_tokens=15
+INFO:__main__:Added request 1: 'The future of AI is'
+INFO:engine.inference:Added request 2: prompt_length=5, max_new_tokens=15
+INFO:__main__:Added request 2: 'Once upon a time,'
+INFO:__main__:Starting vLLM engine inference...
+INFO:engine.inference:Generation step: running 4 sequences
+INFO:engine.inference:Generation step: running 4 sequences
+INFO:engine.inference:Generation step: running 3 sequences
+INFO:engine.inference:Generation step: running 3 sequences
+INFO:engine.inference:Generation step: running 3 sequences
+INFO:engine.inference:Generation step: running 3 sequences
+INFO:engine.inference:Generation step: running 3 sequences
+INFO:engine.inference:Generation step: running 3 sequences
+INFO:engine.inference:Generation step: running 3 sequences
+INFO:engine.inference:Generation step: running 3 sequences
+INFO:engine.inference:Step 10: {'waiting': 0, 'running': 3, 'finished': 0, 'total_sequences_processed': 3}
+INFO:engine.inference:Generation step: running 3 sequences
+INFO:engine.inference:Generation step: running 3 sequences
+INFO:engine.inference:Generation step: running 3 sequences
+INFO:engine.inference:Generation step: running 3 sequences
+INFO:engine.inference:Generation step: running 1 sequences
+INFO:engine.inference:Generation complete in 15 steps
+INFO:__main__:Inference complete! Generated text:
+INFO:__main__:  Sequence 0: " Oren. Let's start. I'm sorry\n\nOren\n"
+INFO:__main__:  Sequence 1: ' an illusion. I am told. But why not try to use this information'        
+INFO:__main__:  Sequence 2: ' this is the man that lives here, that I\'ll call myself."\n'
+INFO:__main__:Final stats: {'block_manager': {'total_blocks': 128, 'allocated_blocks': 0, 'free_blocks': 128, 'total_tokens_capacity': 2048, 'filled_tokens': 0, 'utilization': 0.0}, 'scheduler': {'waiting': 0, 'running': 0, 'finished': 3, 'total_sequences_processed': 3}}
+INFO:__main__:✓ Full inference working correctly!
+INFO:__main__:
+============================================================
+INFO:__main__:TEST 6: Real GPT-2 Pretrained Weights
+INFO:__main__:============================================================
+INFO:__main__:Building GPT-2 Small architecture (dim=768, 12 heads, 12 layers)...
+INFO:model.load_weights:Building gpt2 model: dim=768, heads=12, layers=12
+INFO:__main__:Model parameters: 124,439,808
+INFO:__main__:Downloading/loading GPT-2 pretrained weights from HuggingFace...
+INFO:model.load_weights:Loading pretrained weights from HuggingFace: 'gpt2'...
+INFO:httpx:HTTP Request: HEAD https://huggingface.co/gpt2/resolve/main/config.json "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: HEAD https://huggingface.co/gpt2/resolve/main/model.safetensors "HTTP/1.1 302 Found"
+Loading weights: 100%|███████████████████████████████████████████| 148/148 [00:00<00:00, 5578.99it/s]
+INFO:httpx:HTTP Request: HEAD https://huggingface.co/gpt2/resolve/main/generation_config.json "HTTP/1.1 200 OK"
+INFO:model.load_weights:HuggingFace state dict loaded (149 tensors)
+INFO:model.load_weights:✓ GPT-2 pretrained weights loaded successfully (gpt2)
+INFO:httpx:HTTP Request: HEAD https://huggingface.co/gpt2/resolve/main/config.json "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: HEAD https://huggingface.co/gpt2/resolve/main/tokenizer_config.json "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: GET https://huggingface.co/api/models/gpt2/tree/main/additional_chat_templates?recursive=false&expand=false "HTTP/1.1 307 Temporary Redirect"
+INFO:httpx:HTTP Request: GET https://huggingface.co/api/models/openai-community/gpt2/tree/main/additional_chat_templates?recursive=false&expand=false "HTTP/1.1 404 Not Found"
+INFO:httpx:HTTP Request: GET https://huggingface.co/api/models/gpt2/tree/main?recursive=true&expand=false "HTTP/1.1 307 Temporary Redirect"
+INFO:httpx:HTTP Request: GET https://huggingface.co/api/models/openai-community/gpt2/tree/main?recursive=true&expand=false "HTTP/1.1 200 OK"
+INFO:__main__:Prompt : 'The future of artificial intelligence is'
+INFO:__main__:Output : "The future of artificial intelligence is AI, and we can't control it.\n\nAnd then I got to the point where I"
+INFO:__main__:
+INFO:__main__:Prompt : 'Once upon a time in a land far away,'
+INFO:__main__:Output : 'Once upon a time in a land far away, and far out, far, far, far away. And it is this that we must begin with'
+INFO:__main__:
+INFO:__main__:✓ GPT-2 pretrained weights working correctly! (text should be coherent English)
+INFO:__main__:
+============================================================
+INFO:__main__:TEST 9: Temperature + Top-p Sampling Strategy
+INFO:__main__:============================================================
+INFO:__main__:
+Part A — How temperature affects nucleus size (top_p=0.9):
+INFO:__main__:Temperature      Min nucleus      Max nucleus      Avg nucleus     
+INFO:__main__:─────────────────────────────────────────────────────────────────
+INFO:__main__:0.3              626              1447             1093.2
+INFO:__main__:0.5              11660            12259            11848.8
+INFO:__main__:0.8              25559            25886            25724.8
+INFO:__main__:1.0              30566            30779            30674.1
+INFO:__main__:1.3              34865            35027            34951.4
+INFO:__main__:2.0              39281            39385            39332.6
+INFO:__main__:
+→ Lower temperature → smaller nucleus (model is more confident).
+→ Higher temperature → larger nucleus (more tokens considered).
+
+INFO:__main__:Part B — Qualitative text output with different sampling settings:
+INFO:__main__:(Using real GPT-2 Small weights)
+
+INFO:model.load_weights:Building gpt2 model: dim=768, heads=12, layers=12
+INFO:model.load_weights:Loading pretrained weights from HuggingFace: 'gpt2'...
+INFO:httpx:HTTP Request: HEAD https://huggingface.co/gpt2/resolve/main/config.json "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: HEAD https://huggingface.co/gpt2/resolve/main/model.safetensors "HTTP/1.1 302 Found"
+Loading weights: 100%|███████████████████████████████████████████| 148/148 [00:00<00:00, 6363.28it/s]
+INFO:httpx:HTTP Request: HEAD https://huggingface.co/gpt2/resolve/main/generation_config.json "HTTP/1.1 200 OK"
+INFO:model.load_weights:HuggingFace state dict loaded (149 tensors)
+INFO:model.load_weights:✓ GPT-2 pretrained weights loaded successfully (gpt2)
+INFO:httpx:HTTP Request: HEAD https://huggingface.co/gpt2/resolve/main/config.json "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: HEAD https://huggingface.co/gpt2/resolve/main/tokenizer_config.json "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: GET https://huggingface.co/api/models/gpt2/tree/main/additional_chat_templates?recursive=false&expand=false "HTTP/1.1 307 Temporary Redirect"
+INFO:httpx:HTTP Request: GET https://huggingface.co/api/models/openai-community/gpt2/tree/main/additional_chat_templates?recursive=false&expand=false "HTTP/1.1 404 Not Found"
+INFO:httpx:HTTP Request: GET https://huggingface.co/api/models/gpt2/tree/main?recursive=true&expand=false "HTTP/1.1 307 Temporary Redirect"
+INFO:httpx:HTTP Request: GET https://huggingface.co/api/models/openai-community/gpt2/tree/main?recursive=true&expand=false "HTTP/1.1 200 OK"
+INFO:__main__:Prompt: 'The future of artificial intelligence is'
+
+INFO:__main__:  [Greedy       (T=1, k=1)]
+INFO:__main__:    ' artificial intelligence.\n\nThe world is changing.\n\nThe world is changing.\n\nThe world is changing.\n'
+
+INFO:__main__:  [Conservative (T=0.7, p=0.9)]
+INFO:__main__:    ' artificial intelligence," said Dr. Charles S. Myers, professor of history and sociology at the University of California, San Diego.'
+
+INFO:__main__:  [Balanced     (T=0.8, p=0.9)]
+INFO:__main__:    ' artificial intelligence," a statement from Apple said.\n\nThe statement did not mention any specific company, but an Apple spokesman said'
+
+INFO:__main__:  [Creative     (T=1.1, p=0.95)]
+INFO:__main__:    ' material warfare," a newly commissioned report has said.<|endoftext|>Does Vice Want Gear Made In Russia ?\n\nCan fuel levels be'
+
+INFO:__main__:  [Very diverse (T=1.5, p=0.98)]
+INFO:__main__:    ' material warfare," a newly commissioned ODNI will explain Zurich, Vice Collective Gearmaker Inspective Publishing Foundation. "How do act'
+
+INFO:__main__:✓ Temperature + Top-p strategy working correctly!
+INFO:__main__:
+============================================================
+INFO:__main__:ALL TESTS PASSED! ✓
+INFO:__main__:============================================================
+INFO:__main__:
+To start the FastAPI server with real GPT-2 weights, run:
+INFO:__main__:  python -m uvicorn serving.api:app --reload --host 0.0.0.0 --port 8000

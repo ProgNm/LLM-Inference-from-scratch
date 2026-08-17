@@ -1,0 +1,327 @@
+# System Analysis & Architecture: "vLLM-from-scratch" Engine
+
+This directory implements a **fully functioning, minimalist replica of the vLLM (Virtual LLM) serving engine** from scratch in PyTorch and FastAPI. It is designed to demonstrate key optimization concepts in Large Language Model (LLM) serving, specifically focusing on overcoming the memory and scheduling bottlenecks of traditional autoregressive text generation.
+
+---
+
+## 1. Core Architectural Bottlenecks & vLLM Solutions
+
+Traditional LLM inference suffers from significant inefficiencies:
+1. **Redundant Computation**: Generating each new token requires attending to all preceding tokens. Without caching, this leads to $O(N^2)$ computational complexity.
+2. **KV Cache Memory Fragmentation**: Traditional serving systems allocate memory for the Key-Value (KV) cache contiguously for the maximum sequence length. This results in **internal fragmentation** (unused pre-allocated space), **external fragmentation** (scattered memory blocks), and **virtual memory waste** (allocations for tokens not yet generated).
+3. **Static Batching Inefficiency**: Standard batching groups sequences together and runs inference until *all* sequences in the batch finish. This leads to GPU idle time (computational bubbles) while waiting for the longest sequence to complete.
+
+This repository implements the three pillars of **vLLM** to solve these issues:
+1. **KV Cache (Phase 2)**: Reuses precomputed Key and Value states to reduce attention computation to $O(1)$ per step.
+2. **PagedAttention & Block Manager (Phase 3)**: Divides the KV cache into fixed-size physical memory blocks (similar to OS paging) to eliminate memory fragmentation and allow dynamic, non-contiguous allocations.
+3. **Continuous Batching Scheduler (Phase 4)**: Dynamically manages sequence states, allowing new requests to join the active batch mid-flight and completed requests to leave early.
+
+---
+
+## 2. Directory Structure
+
+```text
+vLLM-from-scratch/
+├── model/                         # Neural Network Architecture
+│   ├── __init__.py                # Module initialization
+│   ├── attention.py               # Standard Multi-Head & PagedAttention layers
+│   ├── kv_cache.py                # Contiguous & batch-level KV caching
+│   └── transformer.py             # Custom GPT-style Transformer (with RoPE & sampling)
+├── engine/                        # Serving & Scheduling Orchestration
+│   ├── __init__.py                # Module initialization
+│   ├── block_manager.py           # PagedAttention physical memory management
+│   ├── scheduler.py               # Continuous batching scheduler (FIFO + states)
+│   └── inference.py               # SimpleLLMEngine orchestration wrapper
+├── serving/                       # REST API Layer
+│   ├── __init__.py                # Module initialization
+│   └── api.py                     # FastAPI server with background tasks & polling
+├── main.py                        # Automated verification test suite
+├── requirements.txt               # Project dependencies
+└── README.md                      # High-level overview and setup guide
+```
+
+---
+
+## 3. Deep-Dive: File & Component Analysis
+
+### A. Model Module (`model/`)
+
+#### 1. `model/transformer.py`
+This file implements a custom, decoders-only GPT-style Transformer model using PyTorch.
+*   **`RotaryPositionalEmbedding` (RoPE)**:
+    *   Implements Rotary Position Embeddings to inject positional information directly into the Query and Key tensors.
+    *   Precomputes inverse frequency vectors (`inv_freq`) using a base of 10,000 to construct rotation matrices, enabling better extrapolation to longer sequence lengths compared to absolute embeddings.
+*   **`FeedForwardNetwork` (FFN)**:
+    *   A multi-layer perceptron (MLP) consisting of a projection layer (`fc1` to `hidden_dim = 4 * dim`), a `GELU` activation function, a dropout layer, and a final linear layer (`fc2`) projecting back to the hidden dimension `dim`.
+*   **`TransformerBlock`**:
+    *   Represents a single layer of the transformer.
+    *   Combines standard layer normalization (`nn.LayerNorm`), self-attention (standard `MultiHeadAttention` or `PagedAttention` depending on the `use_paged_attention` flag), and the feed-forward network with residual skip-connections.
+*   **`GPTModel`**:
+    *   The primary network class.
+    *   Contains the token embedding lookup, position embeddings, a stack of `TransformerBlock` layers, a final layer normalization, and a language modeling head (`lm_head`) which shares weights (ties weight matrices) with the token embedding to reduce total parameters.
+    *   **`generate()` method**: Implements the autoregressive generation loop. Performs temperature scaling, Top-K filtering, and Top-P (nucleus) filtering to sample the next token, updating the KV cache at each step.
+
+#### 2. `model/attention.py`
+Implements the core self-attention mechanisms.
+*   **`MultiHeadAttention`**:
+    *   Implements standard scaled dot-product attention ($Attention(Q, K, V) = Softmax(\frac{QK^T}{\sqrt{d_k}})V$).
+    *   Features projections for Queries, Keys, and Values (`q_proj`, `k_proj`, `v_proj`).
+    *   Concatenates current keys/values with historical keys/values if a `kv_cache` is supplied, enabling standard decoding.
+*   **`PagedAttention`**:
+    *   Designed to work with the block-based paging layout.
+    *   Features a custom method `forward_with_paged_kv` that performs attention calculations using split Query, Key, and Value tensors.
+    *   Note: While standard attention operations are calculated inside PyTorch, the mapping logic of these non-contiguous memory blocks is handled externally by the `BlockManager`.
+
+#### 3. `model/kv_cache.py`
+Contains models to maintain the history of keys and values across generation steps.
+*   **`KVCache`**:
+    *   Manages the KV cache for a single sequence.
+    *   Preallocates a maximum memory buffer of shape `(batch_size, num_heads, max_seq_len, head_dim)` on the target device to avoid the overhead of dynamic GPU memory allocation.
+    *   Tracks length via `cur_len` and offers `update()`, `get()`, and `reset()` utilities.
+*   **`MultiSeqKVCache`**:
+    *   Extends caching to multiple sequences within a batch using sequence tracking (`seq_lengths: Dict[int, int]`).
+    *   Maps sequence identifiers (`seq_id`) to indices in a combined tensor block, allowing isolated updates (`update()`) and retrievals (`get()`) per active request.
+
+---
+
+### B. Engine Module (`engine/`)
+
+#### 1. `engine/block_manager.py`
+This module acts as the virtual memory management system of the vLLM engine, mapping logical token indices to physical block addresses in physical GPU/CPU memory.
+*   **Constants**:
+    *   `BLOCK_SIZE = 16`: Defines the block capacity (number of tokens that can reside in a single memory block).
+*   **`BlockTableEntry`**:
+    *   A simple data container tracking the physical `block_ids` and the `num_filled_tokens` per block allocated to a specific sequence.
+*   **`BlockManager`**:
+    *   Allocates, extends, and frees fixed-size blocks to prevent memory fragmentation.
+    *   Maintains preallocated global cache tensors `k_cache` and `v_cache` of shape `(num_blocks, block_size, num_heads, head_dim)`.
+    *   `free_blocks`: A set tracking indices of unassigned blocks.
+    *   `allocated_blocks`: A map linking physical blocks to sequence IDs.
+    *   `block_table`: A map from sequence IDs to their ordered lists of physical block IDs.
+    *   **Core Methods**:
+        *   `allocate_sequence(seq_id, num_tokens)`: Computes the number of blocks required for the sequence ($\lceil \frac{num\_tokens}{BLOCK\_SIZE} \rceil$), pops them from `free_blocks`, and maps them.
+        *   `extend_sequence(seq_id, num_new_tokens)`: Allocates additional physical blocks if the current token length exceeds the sequence's existing block-level capacity.
+        *   `write_to_block(seq_id, block_index, k_data, v_data, token_offset)`: Writes projected Key and Value states directly into the corresponding physical cache block.
+        *   `read_from_block(...)`: Retrieves keys/values from physical block slots.
+        *   `free_sequence(seq_id)`: Deallocates all blocks assigned to a sequence and returns them to the `free_blocks` pool.
+
+#### 2. `engine/scheduler.py`
+Implements the continuous batching scheduling policy.
+*   **`SequenceState` (Enum)**:
+    *   Defines three lifecycle states for a generation request:
+        *   `WAITING`: Queued in the FIFO buffer, waiting for physical allocation and execution.
+        *   `RUNNING`: Currently active in the model's execution batch.
+        *   `FINISHED`: Generation complete (reached maximum tokens or produced an EOS token).
+*   **`Sequence`**:
+    *   Tracks request-level metadata: sequence ID, prompt string, raw input token IDs, generated output token IDs, parameters (max new tokens, temperature, top-k, top-p), and timestamp metrics.
+*   **`SchedulerConfig`**:
+    *   Configures serving limit bounds: `max_batch_size`, `max_seq_length`, and `max_tokens_per_batch`.
+*   **`ContinuousBatchingScheduler`**:
+    *   Manages the queue transitions: `waiting_queue` (FIFO list), `running_sequences` (dictionary of active sequences), and `finished_sequences` (dictionary of completed sequences).
+    *   `add_sequence(...)`: Registers new requests, wraps them in a `Sequence` object, and appends them to the `waiting_queue`.
+    *   `schedule_step()`: Executed at every inference iteration. Moves waiting sequences to the `running_sequences` pool as long as the concurrent batch size does not exceed `max_batch_size`. Returns the list of sequences to process.
+    *   `mark_sequence_token_generated(seq_id)`: Increments the generated token count and checks if the generation limit has been reached.
+
+#### 3. `engine/inference.py`
+Orchestrates the model and engine modules into a single interface.
+*   **`InferenceConfig`**:
+    *   Consolidates model configuration (vocab size, dimensions, layers, heads) and engine configuration (block numbers, batch sizes, device target).
+*   **`SimpleLLMEngine`**:
+    *   Initializes the `GPTModel` (with `use_paged_attention=True`), the `BlockManager`, and the `ContinuousBatchingScheduler`.
+    *   **Core Methods**:
+        *   `add_request(prompt, tokenizer, ...)`: Encodes the prompt into tokens, registers it with the scheduler, and requests initial physical block allocation from the `BlockManager`.
+        *   `_prepare_batch(sequences)`: Prepares input tensors for the step. For sequences in the prompt phase, it passes all prompt tokens. For sequences in the generation phase, it extracts only the last generated token.
+        *   `generate_step()`: Executes a single scheduling-inference-decoding loop iteration:
+            1. Requests active sequences from the scheduler.
+            2. Builds batched input tensors.
+            3. Executes the model forward pass.
+            4. Samples next tokens using temperature, Top-K, and Top-P filtering.
+            5. Appends the new tokens to the respective sequence outputs.
+            6. Frees memory blocks and scheduler structures for sequences that have completed.
+        *   `generate_all(max_steps)`: A synchronous convenience loop that executes `generate_step()` until all registered sequences are complete.
+
+---
+
+### C. Serving Module (`serving/`)
+
+#### 1. `serving/api.py`
+Exposes the inference engine as a REST API using FastAPI.
+*   **Schemas (Pydantic)**:
+    *   `GenerateRequest`: Prompt text, maximum generation tokens, temperature, and nucleus sampling parameters.
+    *   `GenerateResponse`: A receipt returning a `request_id` and queue status (`accepted`, `running`, `completed`).
+    *   `ResultResponse`: Returns the finalized text, generated token count, and performance statistics (tokens per second).
+    *   `StatusResponse`: Exposes active/waiting/completed queues and block memory utilization from the block manager.
+*   **Endpoints**:
+    *   `POST /generate`: Accepts a text prompt, queues it in the scheduler, and returns immediately with a tracking request ID.
+    *   `GET /generate/{request_id}/status`: Polls the status of a specific sequence.
+    *   `GET /generate/{request_id}/result`: Retrieves the fully decoded output text once the request transitions to `FINISHED`.
+    *   `GET /status`: Retrieves system-wide memory and scheduler metrics.
+    *   `POST /run_inference`: Triggers the engine's background loop, processing all queued sequences until completion.
+    *   `GET /health`: Standard container health check.
+
+---
+
+## 4. End-to-End Inference Lifecycle Walkthrough
+
+To understand the interaction between these modules, here is the lifecycle of a request:
+
+```
+[Client] ---> POST /generate ---> [FastAPI serving/api.py]
+                                           |
+                                  Tokenize prompt (GPT-2)
+                                           |
+                                           v
+[BlockManager] <--- Allocate Blocks <--- SimpleLLMEngine.add_request()
+(Preallocates physical                               |
+ token slots in memory)                              v
+                                      [Scheduler] (Add to waiting queue)
+                                           |
+                                           v
+[Client] ---> POST /run_inference --------> [SimpleLLMEngine.generate_step() Loop]
+                                           |
+                                           +---> 1. Scheduler selects batch of sequences
+                                           |
+                                           +---> 2. Prepare batched inputs (Prompt vs Decode tokens)
+                                           |
+                                           +---> 3. Run forward pass on GPTModel
+                                           |
+                                           +---> 4. Sample next tokens (Temp/Top-K/Top-P)
+                                           |
+                                           +---> 5. Write KV-cache updates to physical blocks
+                                           |
+                                           +---> 6. Check completion, free blocks if finished
+                                           |
+                                           v
+[Client] <--- GET /generate/{id}/result <-- [FastAPI serving/api.py] (Decode & return)
+```
+
+---
+
+## 5. Running the System
+
+### 1. Verification Test Suite
+Run the automated validation script to verify all phases (Transformer forward pass, KV-cache, BlockManager allocations, Continuous scheduler, and integrated generation):
+```bash
+python main.py
+```
+
+### 2. Launching the Serving API
+Start the FastAPI server locally on port 8000:
+```bash
+python -m uvicorn serving.api:app --reload --host 0.0.0.0 --port 8000
+```
+Once running, the interactive documentation is available at `http://localhost:8000/docs`.
+
+
+
+Load Real GPT-2 Pretrained Weights into vLLM-from-scratch
+Goal
+The model currently uses randomly initialized weights and a small "toy" configuration (dim=128, 2 layers, 8 heads). The goal is to:
+
+Update the architecture's hyperparameters and linear projection biases to exactly match GPT-2 Small.
+Add a weight-loading utility that downloads real GPT-2 pretrained weights from HuggingFace and maps them into our custom GPTModel.
+Wire it into the API server and the test suite — everything else (KV-cache, BlockManager, scheduler, FastAPI endpoints) stays the same.
+GPT-2 Small Architecture (Target)
+Parameter	Toy (current)	GPT-2 Small (target)
+vocab_size	50257	50257 ✓
+max_seq_len	512	1024
+dim (n_embd)	128	768
+num_heads (n_head)	8	12
+num_layers (n_layer)	2	12
+ffn_hidden_dim	4×dim=512	4×768=3072
+Attention bias	False	True
+FFN bias	False	True
+Positional encoding	Learned nn.Embedding	Learned nn.Embedding ✓
+Activation	GELU	GELU ✓
+Tied embeddings	Yes	Yes ✓
+HuggingFace → Custom Model Weight Mapping
+GPT-2 uses Conv1D (weights stored as [in, out]) instead of nn.Linear ([out, in]), so all Conv1D weights must be transposed on load. Also, c_attn is a single fused Q+K+V projection that must be split into separate q_proj, k_proj, v_proj.
+
+HuggingFace Key	Transform	Our Model Key
+transformer.wte.weight	direct	token_embedding.weight
+transformer.wpe.weight	direct	pos_embedding.weight
+transformer.h.{i}.ln_1.weight/bias	direct	blocks.{i}.norm1.weight/bias
+transformer.h.{i}.attn.c_attn.weight.T[:768, :]	split + transpose	blocks.{i}.attn.q_proj.weight
+transformer.h.{i}.attn.c_attn.bias[:768]	split	blocks.{i}.attn.q_proj.bias
+transformer.h.{i}.attn.c_attn.weight.T[768:1536, :]	split + transpose	blocks.{i}.attn.k_proj.weight
+transformer.h.{i}.attn.c_attn.bias[768:1536]	split	blocks.{i}.attn.k_proj.bias
+transformer.h.{i}.attn.c_attn.weight.T[1536:, :]	split + transpose	blocks.{i}.attn.v_proj.weight
+transformer.h.{i}.attn.c_attn.bias[1536:]	split	blocks.{i}.attn.v_proj.bias
+transformer.h.{i}.attn.c_proj.weight.T	transpose	blocks.{i}.attn.out_proj.weight
+transformer.h.{i}.attn.c_proj.bias	direct	blocks.{i}.attn.out_proj.bias
+transformer.h.{i}.ln_2.weight/bias	direct	blocks.{i}.norm2.weight/bias
+transformer.h.{i}.mlp.c_fc.weight.T	transpose	blocks.{i}.ffn.fc1.weight
+transformer.h.{i}.mlp.c_fc.bias	direct	blocks.{i}.ffn.fc1.bias
+transformer.h.{i}.mlp.c_proj.weight.T	transpose	blocks.{i}.ffn.fc2.weight
+transformer.h.{i}.mlp.c_proj.bias	direct	blocks.{i}.ffn.fc2.bias
+transformer.ln_f.weight/bias	direct	norm.weight/bias
+lm_head.weight	tied (skip)	lm_head.weight (same as token_embedding.weight)
+Proposed Changes
+Layer 1: Model Architecture
+[MODIFY] 
+attention.py
+Both MultiHeadAttention and PagedAttention:
+
+Change nn.Linear(..., bias=False) → nn.Linear(..., bias=True) for all four projections (q_proj, k_proj, v_proj, out_proj).
+[MODIFY] 
+transformer.py
+In FeedForwardNetwork: Change both nn.Linear calls to bias=True.
+In GPTModel.__init__: Update default parameters to match GPT-2 Small (dim=768, num_heads=12, num_layers=12, max_seq_len=1024).
+Layer 2: Weight Loader Utility
+[NEW] 
+model/load_weights.py
+A standalone utility with a single public function:
+
+python
+
+def load_gpt2_weights(model: GPTModel, model_name: str = "gpt2") -> GPTModel:
+    """
+    Downloads GPT-2 weights from HuggingFace and maps them into our custom GPTModel.
+    Handles Conv1D transposition and c_attn Q/K/V splitting.
+    Returns the model with loaded weights in eval mode.
+    """
+Internal logic:
+
+from transformers import GPT2LMHeadModel → download/load weights.
+Extract state_dict() from the HuggingFace model.
+Map each weight key using the table above.
+Copy weights with model.load_state_dict(new_state_dict, strict=True).
+Layer 3: Engine Configuration
+[MODIFY] 
+engine/inference.py
+Update InferenceConfig defaults to GPT-2 Small values:
+vocab_size=50257, model_dim=768, num_heads=12, num_layers=12, max_seq_length=1024
+[MODIFY] 
+serving/api.py
+Update the init_engine() default InferenceConfig to GPT-2 Small values.
+Call load_gpt2_weights(engine.model) after engine init to load pretrained weights.
+Layer 4: Test Suite
+[MODIFY] 
+main.py
+Add a test_gpt2_weights() function that:
+Creates a GPT-2 Small-sized model.
+Loads pretrained weights via load_gpt2_weights().
+Generates text from a test prompt and prints the real output.
+Update test_model_forward_pass() to keep the small toy model (for fast unit testing).
+Update test_full_inference() to optionally use real GPT-2 weights.
+Verification Plan
+Automated Tests
+bash
+
+python main.py
+All 5 existing tests should still pass. The new GPT-2 weight test should print coherent English text.
+
+Manual Verification
+Run the server: python -m uvicorn serving.api:app --reload --host 0.0.0.0 --port 8000
+Send a request: curl -X POST http://localhost:8000/generate -H "Content-Type: application/json" -d '{"prompt": "The future of AI is", "max_new_tokens": 30}'
+Run inference: curl -X POST http://localhost:8000/run_inference
+Get result: curl http://localhost:8000/generate/0/result
+The generated_text should be meaningful, coherent English (not random garbage), proving the real GPT-2 weights are being used.
+Open Questions
+IMPORTANT
+
+Which GPT-2 variant? The plan targets gpt2 (GPT-2 Small, 117M params). Other variants exist: gpt2-medium (345M), gpt2-large (774M), gpt2-xl (1.5B). The architecture scales directly — only the hyperparameters differ. Should we hard-code Small, or make the variant configurable via a model_name parameter?
+
+NOTE
+
+The RotaryPositionalEmbedding class in transformer.py is not used by GPT-2 (which uses learned absolute position embeddings). It will be left in place as dead code since removing it would be a destructive change to the file's structure, but it won't affect correctness.
